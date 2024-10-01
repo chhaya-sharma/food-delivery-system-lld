@@ -1,0 +1,427 @@
+
+@startuml
+class MenuItem {
+    id: String
+    itemName: String
+    cuisineType: CuisineType
+    mealType: MealType
+    price: double
+}
+
+
+enum MealType {
+    BREAKFAST,
+    BRUNCH,
+    ELEVENSES,
+    LUNCH,
+    DINNER,
+    SUPPER,
+    AFTERNOON_TEA,
+    HIGH_TEA
+}
+
+enum CuisineType {
+    INDIAN_CUISINE,
+    INDIAN_CHINESE,
+    ITALIAN_CUISINE,
+    ITALIAN_AMERICAN,
+    CHINESE_CUISINE,
+    GUJARATI,
+    HYDERABAD,
+    JAPANESE,
+    SOUTH_INDIAN,
+    KOREAN
+}
+
+class FoodMenu {
+    id: String
+    restaurantIds: List<String>
+    menuItemList: List<MenuItem>
+
+}
+
+class FoodMenuData {
+    foodMenuById: Map<String, FoodMenu>
+    menuItemById: Map<String, String>
+    foodMenuIdByRestaurantId: Map<String, MenuItem>
+
+}
+
+class FoodMenuService {
+    foodMenuData: FoodMenuData
+}
+
+CuisineType *-- MenuItem
+MealType *-- MenuItem
+MenuItem *-- FoodMenu
+FoodMenu *-- FoodMenuData
+MenuItem *-- FoodMenuData
+FoodMenuData *-- FoodMenuService
+
+
+
+
+class CartService {
+    cartData: CartData
+    cartCommandExecutorList: List<CartCommandExecutor>
+    foodMenuService: FoodMenuService
+
+}
+
+class Cart {
+    List<UserId, Map<RestaurantId, List<MenuItem>>> userToRestaurantToFoodItemsMap
+}
+
+abstract class CartCommandExecutor {
+    execute(String userId, String restaurantId, String itemId)
+    abstract isValid(String userId, String restaurantId, String itemId);
+    abstract executeCommand(String userId, String restaurantId, String itemId);
+    abstract boolean isApplicable(final CartCommandType cartCommandType);
+
+}
+
+enum CartCommandType {
+    ADD_ITEM,
+    REMOVE_ITEM,
+    CLEAR_CART
+}
+
+CartCommandExecutor -> CartCommandType
+
+class AddToCartCommandExecutor {
+    foodMenuService: FoodMenuService
+    cartData: CartData
+    CartCommandType.ADD_ITEM
+}
+
+class RemoveFromCartCommandExecutor {
+    cartData: CartData
+    CartCommandType.REMOVE_ITEM
+}
+
+CartCommandExecutor <|-- RemoveFromCartCommandExecutor
+CartCommandExecutor <|-- AddToCartCommandExecutor
+
+
+
+abstract class OrderCommandExecutor {
+    abstract boolean isValid(final Order order);
+    abstract void executeCommand(final Order order);
+    abstract boolean isApplicable(final OrderCommandType orderCommandType);
+
+    void execute(@NonNull final Order order)
+            \tif (isValid(order))
+                \t\texecuteCommand(order);
+
+}
+
+class PlaceOrderCommandExecutor {
+    OrderData orderData
+    executeCommand(Order order)
+    isValid(final Order order)
+    isApplicable(final OrderCommandType orderCommandType)
+}
+
+note left of PlaceOrderCommandExecutor::executeCommand
+    public void executeCommand(Order order) {
+        orderData.getOrderById().put(order.getId(), order);
+        List<String> orderIds = orderData.getOrderIdsByUserId().getOrDefault(order.getUserId(), new ArrayList<>());
+        orderIds.add(order.getId());
+        orderData.getOrderIdsByUserId().put(order.getUserId(), orderIds);
+        order.markOrderWaitingForPayment();
+    }
+end note
+note left of PlaceOrderCommandExecutor::isValid
+boolean isValid(Order order) {
+        return order.getOrderStatus() == OrderStatus.PENDING
+    }
+end note
+
+note left of PlaceOrderCommandExecutor::isApplicable
+boolean isApplicable(OrderCommandType orderCommandType) {
+        return orderCommandType == OrderCommandType.PLACE;
+    }
+end note
+
+
+class CancelOrderCommandExecutor {
+    OrderData orderData
+    void executeCommand(Order order)
+    boolean isApplicable(Order order)
+    boolean isValid(Order order)
+}
+
+note right of CancelOrderCommandExecutor::executeCommand
+    void executeCommand(Order order) {
+         order.markOrderCancelled();
+    }
+end note
+
+note right of CancelOrderCommandExecutor::isApplicable
+boolean isApplicable(OrderCommandType orderCommandType) {
+        return orderCommandType == OrderCommandType.CANCEL;
+    }
+end note
+
+note right of CancelOrderCommandExecutor::isValid
+boolean isValid(Order order) {
+return orderData.getOrderById().containsKey(order.getId();
+}
+end note
+
+enum OrderCommandType {
+    PLACE,
+    CANCEL
+}
+
+
+OrderCommandExecutor <|-- PlaceOrderCommandExecutor
+OrderCommandExecutor <|-- CancelOrderCommandExecutor
+OrderCommandExecutor -> OrderData
+OrderCommandExecutor -up-> OrderCommandType
+enum OrderStatus {
+    PENDING,
+    WAITING_FOR_PAYMENT,
+    PLACED,
+    CANCELLED,
+    OUT_FOR_DELIVERY,
+    DELIVERED
+}
+
+enum PaymentType {
+    CREDIT_CARD,
+    DEBIT_CARD,
+    CASH_ON_DELIVERY,
+    AMAZON_PAY,
+    PAYTM,
+    WALLET,
+    PAYPAL
+}
+
+enum  PaymentStatus {
+    PENDING,
+    APPROVED,
+    DECLINED,
+    TIMEOUT
+}
+
+class Payment {
+      String id;
+      String orderId;
+      Map<PaymentType, Double> amountPaid;
+      CouponCode couponCode;
+      PaymentStatus paymentStatus;
+}
+
+
+class Order {
+    String id;
+    String userId;
+    String restaurantId;
+    List<MenuItem> menuItemList;
+    OrderStatus orderStatus;
+}
+
+class OrderData {
+    Map<String, Order> orderById = new HashMap<>();
+    Map<String, List<String>> orderIdsByUserId = new HashMap<>();
+}
+
+class PaymentData {
+    private Map<String, Payment> paymentById = new HashMap<>();
+    private Map<String, String> paymentIdByOrderId = new HashMap<>();
+}
+
+
+interface PricingStrategy {
+    Bill generateBill(List<MenuItem> menuItemList)
+    boolean isApplicable(CouponCode couponCode)
+}
+
+
+class FiveHundredOffPricingStrategy {
+    Bill generateBill(List<MenuItem> menuItemList)
+    boolean isApplicable(CouponCode couponCode)
+}
+
+note left of FiveHundredOffPricingStrategy::generateBill
+
+public Bill generateBill(List<MenuItem> menuItemList) {
+        double discount = 500;
+        double totalCost = menuItemList.stream().mapToDouble(menuItem -> menuItem.getPrice()).sum();
+        return Bill.builder()
+                .id(UUID.randomUUID().toString())
+                .totalCost(totalCost)
+                .discount(discount)
+                .amountToBePaid(totalCost - discount)
+                .tax((totalCost - discount) * 0.05)
+                .build();
+    }
+end note
+
+note left of FiveHundredOffPricingStrategy::isApplicable
+    public boolean isApplicable(CouponCode couponCode) {
+        return couponCode == CouponCode.FIVE_HUNDRED_OFF;
+    }
+end note
+
+class TwentyPercentOffPricingStrategy {
+    Bill generateBill(List<MenuItem> menuItemList)
+    boolean isApplicable(CouponCode couponCode)
+}
+
+
+
+note right of TwentyPercentOffPricingStrategy::generateBill
+Bill generateBill(List<MenuItem> menuItemList) {
+    double discountPercent = 20
+    double totalCost = menuItemList.stream().mapToDouble(menuItem -> menuItem.getPrice()).sum();
+    return Bill.builder()
+        .id(UUID.randomUUID().toString())
+        .totalCost(totalCost)
+        .discount(totalCost * discountPercent / 100)
+        .amountToBePaid(totalCost - totalCost * discountPercent / 100)
+        .tax((totalCost - totalCost * discountPercent / 100) * 0.05)
+        .build();
+}
+
+end note
+
+note right of TwentyPercentOffPricingStrategy::isApplicable
+boolean isApplicable(CouponCode couponCode) {
+        return couponCode == CouponCode.TWENTY_PERCENT_OFF;
+    }
+end note
+
+
+enum CouponCode {
+    TWENTY_PERCENT_OFF,
+    FIVE_HUNDRED_OFF
+}
+
+PricingStrategy <|-- FiveHundredOffPricingStrategy
+PricingStrategy <|-- TwentyPercentOffPricingStrategy
+PricingStrategy -> CouponCode
+
+class PricingService {
+List<PricingStrategy> pricingStrategyList;
+CartService cartService;
+Bill getBill(String userId, String restaurantId, CouponCode couponCode)
+}
+
+note left of PricingService::getBill
+Bill getBill(@NonNull final String userId, @NonNull final String restaurantId,
+                        @NonNull final CouponCode couponCode) {
+        List<MenuItem> menuItemList = cartService.getAllItemsOfCart(userId, restaurantId);
+        return pricingStrategyList.stream().filter(pricingStrategy -> pricingStrategy.isApplicable(couponCode))
+                .findAny().get().generateBill(menuItemList);
+    }
+end note
+
+class PaymentService {
+    PaymentData paymentData;
+    PricingService pricingService;
+    OrderService orderService;
+
+    void addPayment(Payment payment)
+    Payment getPaymentById(String paymentId)
+    Payment getPaymentByOrderId(String orderId)
+    boolean validatePayment(Payment payment, Order order)
+}
+
+note right of PaymentService::addPayment
+    public void addPayment(@NonNull final Payment payment) {
+        Order order = orderService.getOrderById(payment.getOrderId());
+        if (!validatePayment(payment, order)) {
+            order.markOrderCancelled();
+            payment.markPaymentDeclined();
+            return;
+        }
+        paymentData.getPaymentById().put(payment.getId(), payment);
+        paymentData.getPaymentIdByOrderId().put(payment.getOrderId(), payment.getId());
+        order.markOrderPlaced();
+        payment.markPaymentApproved();
+    }
+end note
+
+
+note right of PaymentService::validatePayment
+    private boolean validatePayment(Payment payment, Order order) {
+        Bill bill = pricingService.getBill(order.getUserId(), order.getRestaurantId(), payment.getCouponCode());
+        double amountPaid = payment.getAmountPaid().values().stream().mapToDouble(amount -> amount).sum();
+        return BigDecimal.valueOf(amountPaid).compareTo(BigDecimal.valueOf(bill.getAmountToBePaid())) == 0;
+    }
+end note
+
+PaymentService -down-> PaymentData
+PaymentService -left-> PricingService
+PaymentService -up-> OrderService
+
+
+class DeliveryService {
+DeliveryData deliveryData;
+OrderService orderService;
+void updateOrderStatus( Delivery delivery, Order order)
+OrderStatus getOrderStatus(String deliveryId)
+List<Delivery> getDeliveriesByDeliveryBoyId(String deliveryBoyId)
+Delivery getDeliveryById(String deliveryId)
+void addDelivery(Delivery delivery)
+}
+
+note right of DeliveryService::updateOrderStatus
+    private void updateOrderStatus(@NonNull final Delivery delivery, @NonNull final Order order) {
+        long diffInTime = new Date().getTime() - delivery.getDeliveryTime().getTime();
+        long diffInMinutes = diffInTime / (60 * 1000) % 60;
+        if (diffInMinutes > 30) {
+            order.markOrderDelivered();
+        } else if (diffInMinutes > 20) {
+            order.markOrderOutForDelivery();
+        }
+    }
+end note
+
+note right of DeliveryService::addDelivery
+    public void addDelivery(@NonNull final Delivery delivery) {
+        if (deliveryData.getDeliveryById().containsKey(delivery)) {
+            throw new FoodDeliveryException(ExceptionType.DELIVERY_ALREADY_EXISTS, "delivery already exists");
+        }
+        Order order = orderService.getOrderById(delivery.getOrderId());
+        if (order.getOrderStatus() != OrderStatus.PLACED) {
+            throw new FoodDeliveryException(ExceptionType.ORDER_NOT_CONFIRMED, "Order not confirmed");
+        }
+        deliveryData.getDeliveryById().put(delivery.getId(), delivery);
+        List<String> deliveryIds = deliveryData.getDeliveryIdsByDeliveryBoyId()
+                .getOrDefault(delivery.getId(), new ArrayList<>());
+        deliveryIds.add(delivery.getId());
+        deliveryData.getDeliveryIdsByDeliveryBoyId().put(delivery.getDeliveryBoyId(), deliveryIds);
+    }
+end note
+
+class DeliveryData {
+    Map<String, Delivery> deliveryById = new HashMap<>();
+    Map<String, List<String>> deliveryIdsByDeliveryBoyId = new HashMap<>();
+}
+
+DeliveryService -> DeliveryData
+
+class UserData {
+    Map<String, User> userById = new HashMap<>();
+}
+
+class User {
+    private String id;
+    private String name;
+    private long phoneNo;
+    private Address address;
+}
+
+class UserService {
+UserData userData;
+void addUser(User user)
+void deleteUser(String userId)
+void updateUser(User user)
+User getUser(String userId)
+
+}
+
+@enduml
